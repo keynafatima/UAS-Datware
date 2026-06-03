@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dw_user
+      POSTGRES_PASSWORD: dw_pass
+      POSTGRES_DB: dw
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./data:/data:ro
+
+  etl:
+    build:
+      context: .
+      dockerfile: Dockerfile.etl
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: dw
+      DB_USER: dw_user
+      DB_PASS: dw_pass
+    volumes:
+      - ./etl:/app/etl:ro
+      - ./data:/data:ro
+    entrypoint: ["python", "-m", "etl.main"]
+
+volumes:
+  db_data:

@@ -1,0 +1,174 @@
+-- Schema: staging + dimensional model templates
+-- Staging tables (raw copies)
+DROP TABLE IF EXISTS stg_transaksi;
+CREATE TABLE stg_transaksi (
+  id bigint,
+  time_id bigint,
+  site_id bigint,
+  project_id bigint,
+  account_id bigint,
+  variance text,
+  budgeted_cost numeric,
+  actual_cost numeric,
+  created_at text,
+  created_by text,
+  date text,
+  day int,
+  day_name text,
+  month int,
+  year int,
+  site_name text,
+  region text,
+  latitude numeric,
+  longitude numeric,
+  project_name text,
+  project_manager text,
+  status text,
+  start_date text,
+  end_date text,
+  account_name text,
+  account_type text,
+  budget_category text,
+  cost numeric
+);
+
+DROP TABLE IF EXISTS stg_production;
+CREATE TABLE stg_production (
+  production_id bigint,
+  time_id bigint,
+  site_id bigint,
+  material_id bigint,
+  employee_id bigint,
+  shift_id bigint,
+  produced_volume numeric,
+  unit_cost numeric,
+  date text,
+  day int,
+  month int,
+  year int,
+  day_name text,
+  site_name text,
+  region text,
+  latitude numeric,
+  longitude numeric,
+  material_name text,
+  material_type text,
+  unit_of_measure text,
+  quantity numeric,
+  employee_name text,
+  position text,
+  department text,
+  status text,
+  hire_date text,
+  shift_name text,
+  start_time text,
+  end_time text
+);
+
+DROP TABLE IF EXISTS stg_alat_berat;
+CREATE TABLE stg_alat_berat (
+  equipment_usage_id bigint,
+  time_id bigint,
+  date text,
+  day int,
+  day_name text,
+  month int,
+  year int,
+  site_name text,
+  region text,
+  latitude numeric,
+  longitude numeric,
+  equipment_name text,
+  equipment_type text,
+  manufacture text,
+  model text,
+  capacity numeric,
+  purchase_date text,
+  operating_hours numeric,
+  downtime_hours numeric,
+  fuel_consumption numeric,
+  maintenance_cost numeric,
+  created_at text,
+  created_by text
+);
+
+-- Dimensional model (templates)
+-- Date dimension
+CREATE TABLE IF NOT EXISTS dim_date (
+  date_key serial PRIMARY KEY,
+  date date UNIQUE,
+  day int,
+  month int,
+  year int,
+  day_name text
+);
+
+-- Site dimension
+CREATE TABLE IF NOT EXISTS dim_site (
+  site_sk serial PRIMARY KEY,
+  site_id bigint,
+  site_name text,
+  region text,
+  latitude numeric,
+  longitude numeric,
+  UNIQUE(site_id)
+);
+
+-- Equipment dimension (SCD2 template)
+CREATE TABLE IF NOT EXISTS dim_equipment (
+  equipment_sk serial PRIMARY KEY,
+  equipment_name text,
+  equipment_type text,
+  manufacture text,
+  model text,
+  capacity numeric,
+  purchase_date date,
+  effective_from timestamp default now(),
+  effective_to timestamp,
+  is_current boolean default true
+);
+
+-- Material, employee dims (simple)
+CREATE TABLE IF NOT EXISTS dim_material (
+  material_sk serial PRIMARY KEY,
+  material_id bigint,
+  material_name text,
+  material_type text,
+  unit_of_measure text
+  , UNIQUE(material_id)
+);
+
+CREATE TABLE IF NOT EXISTS dim_employee (
+  employee_sk serial PRIMARY KEY,
+  employee_id bigint,
+  employee_name text,
+  position text,
+  department text
+  , UNIQUE(employee_id)
+);
+
+-- Fact tables
+CREATE TABLE IF NOT EXISTS fact_production (
+  production_sk serial PRIMARY KEY,
+  production_id bigint,
+  date date,
+  site_sk int REFERENCES dim_site(site_sk),
+  material_sk int REFERENCES dim_material(material_sk),
+  employee_sk int REFERENCES dim_employee(employee_sk),
+  produced_volume numeric,
+  unit_cost numeric
+  , UNIQUE(production_id)
+);
+
+CREATE TABLE IF NOT EXISTS fact_transaction (
+  transaction_sk serial PRIMARY KEY,
+  id bigint,
+  date date,
+  site_sk int REFERENCES dim_site(site_sk),
+  project_id bigint,
+  account_id bigint,
+  budgeted_cost numeric,
+  actual_cost numeric,
+  cost numeric
+  , UNIQUE(id)
+);
