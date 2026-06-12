@@ -2,14 +2,16 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-
+# Daftar file sumber yang akan diproses dalam ETL.
+# Format: (nama_file_csv, label_dataset, nama_tabel_staging)
+# Data mentah dari file CSV ini nantinya akan dimuat ke tabel staging.
 FILES = [
     ("dataset_alat_berat_dw.csv", "alat_berat", "stg_alat_berat"),
     ("dataset_production.csv", "production", "stg_production"),
     ("dataset_transaksi.csv", "transaksi", "stg_transaksi"),
 ]
 
-
+# Membuat koneksi database PostgreSQL menggunakan SQLAlchemy
 def _make_engine(db):
     url = (
         f"postgresql+psycopg2://{db['user']}:{db['password']}"
@@ -17,7 +19,8 @@ def _make_engine(db):
     )
     return create_engine(url, pool_pre_ping=True)
 
-
+# Membaca file schema.sql yang berisi struktur tabel data warehouse.
+# Schema ini berisi definisi tabel staging, dimensi, dan fact.
 def _read_sql_file():
     sql_path = os.path.join(os.path.dirname(__file__), "..", "sql", "schema.sql")
     if not os.path.exists(sql_path):
@@ -25,7 +28,9 @@ def _read_sql_file():
     with open(sql_path, "r", encoding="utf-8") as f:
         return f.read()
 
-
+# Bagian data profiling.
+# Fungsi ini digunakan untuk mengecek kondisi awal data CSV, seperti jumlah baris,
+# nama kolom, tipe data, missing value, dan contoh data.
 def profile_data(data_dir="/data"):
     """Print a quick profile of all source CSVs."""
     for fname, label, _ in FILES:
@@ -45,20 +50,32 @@ def profile_data(data_dir="/data"):
         print("sample:")
         print(df.head(3).to_dict(orient="records"))
 
-
+# Fungsi utama untuk menjalankan seluruh proses ETL.
+# Alurnya:
+# 1. Membuat koneksi ke database
+# 2. Membuat schema tabel
+# 3. Meload data mentah CSV ke staging
+# 4. Melakukan transformasi dan load ke tabel dimensi serta fact
 def run_etl(db, data_dir="/data"):
     """Run full ETL: apply schema, load staging, transform dimensions, then load facts."""
     engine = _make_engine(db)
 
+    # Menerapkan schema database dari file schema.sql.
+    # Ini memastikan tabel staging, dimensi, dan fact sudah tersedia sebelum data dimuat.
     with engine.begin() as conn:
         conn.execute(text(_read_sql_file()))
     print("schema applied")
-
+    
+    # Tahap Load awal: data CSV dimasukkan ke tabel staging.
     load_staging(engine, data_dir)
+    
+    # Tahap Transform dan Load final: data staging diolah menjadi tabel dimensi dan fact.
     transform_and_load(engine)
     print("ETL finished.")
 
-
+# Tahap Load ke Staging
+# Fungsi ini membaca setiap file CSV, membersihkan nama kolom dari spasi,
+# lalu memasukkan data mentah ke tabel staging yang sesuai.
 def load_staging(engine, data_dir="/data"):
     """Load CSV files into staging tables."""
     for fname, _, table in FILES:
@@ -68,16 +85,23 @@ def load_staging(engine, data_dir="/data"):
             continue
 
         print(f"loading {path} -> {table}")
+
+        # Membaca data CSV sebagai string agar format data asli tetap aman saat masuk staging
         df = pd.read_csv(path, dtype=str)
+        # Membersihkan nama kolom dari spasi di awal/akhir.
         df.columns = [c.strip() for c in df.columns]
 
+        # Mengosongkan tabel staging sebelum data baru dimuat.
+        # Ini dilakukan agar proses ETL bisa dijalankan ulang tanpa menumpuk data lama.
         with engine.begin() as conn:
             conn.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY;"))
 
+        # Memasukkan data CSV ke tabel staging.
         df.to_sql(table, engine, if_exists="append", index=False)
         print(f"loaded {len(df)} rows into {table}")
 
 
+# Fungsi ini menghitung jumlah baris pada tabel tertentu untuk memastikan data sudah masuk.
 def _dq_check_counts(engine, tables):
     checks = {}
     with engine.connect() as conn:
@@ -90,7 +114,10 @@ def _dq_check_counts(engine, tables):
 def _exec(conn, sql):
     conn.execute(text(sql))
 
-
+# Tahap Transform dan Load ke Data Warehouse.
+# Data dari staging akan diubah menjadi struktur star schema:
+# - Tabel dimensi: dim_date, dim_site, dim_material, dim_employee, dll.
+# - Tabel fact: fact_production, fact_transaction, fact_equipment_usage.
 def transform_and_load(engine):
     """Transform staging data into star schema dimensions and facts."""
     staging_counts = _dq_check_counts(
@@ -100,6 +127,8 @@ def transform_and_load(engine):
         print("no data in staging, aborting transforms")
         return
 
+    # Load tabel-tabel dimensi terlebih dahulu.
+    # Dimensi harus dibuat lebih dulu karena fact table akan mengambil foreign key dari dimensi.
     with engine.begin() as conn:
         load_dim_date(conn)
         load_dim_site(conn)
@@ -109,10 +138,12 @@ def transform_and_load(engine):
         load_dim_project(conn)
         load_dim_account(conn)
         load_dim_equipment_scd2(conn)
+        # Setelah dimensi tersedia, data fact dapat dimuat.
         load_fact_production(conn)
         load_fact_transaction(conn)
         load_fact_equipment_usage(conn)
-
+    
+    # Mengecek jumlah data setelah proses transformasi dan load selesai.
     _dq_check_counts(
         engine,
         [
@@ -132,6 +163,9 @@ def transform_and_load(engine):
     print("transforms and loads applied")
 
 
+# Transformasi dimensi tanggal.
+# Fungsi ini mengambil semua tanggal dari tabel staging transaksi, produksi, dan alat berat,
+# lalu mengubahnya menjadi atribut tanggal seperti hari, bulan, kuartal, tahun, dan weekend.
 def load_dim_date(conn):
     _exec(
         conn,
@@ -172,9 +206,13 @@ def load_dim_date(conn):
         """,
     )
 
-
+# Transformasi dimensi site/lokasi.
+# Site dibuat dari beberapa sumber data karena production, transaction, dan equipment
+# bisa memiliki format atau ID lokasi yang berbeda.
 def load_dim_site(conn):
-    # Source-specific natural keys are used because site_id values are reused across datasets.
+    
+    # Membuat dimensi site dari data production.
+    # Natural key diberi prefix PRODUCTION agar tidak bentrok dengan site_id dari dataset lain.
     _exec(
         conn,
         """
@@ -202,6 +240,9 @@ def load_dim_site(conn):
             longitude = EXCLUDED.longitude;
         """,
     )
+    
+    # Membuat dimensi site dari data transaksi.
+    # Prefix TRANSACTION digunakan agar site dari transaksi tidak tertukar dengan source lain.
     _exec(
         conn,
         """
@@ -229,6 +270,10 @@ def load_dim_site(conn):
             longitude = EXCLUDED.longitude;
         """,
     )
+    
+    # Membuat dimensi site dari data alat berat.
+    # Karena dataset equipment tidak memakai site_id numerik, natural key dibuat dengan hash md5
+    # dari kombinasi nama lokasi, region, latitude, dan longitude.
     _exec(
         conn,
         """
@@ -257,6 +302,8 @@ def load_dim_site(conn):
     )
 
 
+# Transformasi dimensi material.
+# Mengambil data material unik dari production dan mengubah ID-nya ke format angka. 
 def load_dim_material(conn):
     _exec(
         conn,
@@ -277,7 +324,8 @@ def load_dim_material(conn):
         """,
     )
 
-
+# Transformasi dimensi employee.
+# Data pegawai diambil dari production, lalu hire_date dikonversi menjadi tipe tanggal.
 def load_dim_employee(conn):
     _exec(
         conn,
@@ -306,7 +354,9 @@ def load_dim_employee(conn):
         """,
     )
 
-
+# Transformasi dimensi shift.
+# Mengambil data shift unik dan mengubah jam mulai/selesai menjadi tipe time.
+# Data shift digunakan untuk menganalisis produksi berdasarkan jam kerja.
 def load_dim_shift(conn):
     _exec(
         conn,
@@ -327,7 +377,8 @@ def load_dim_shift(conn):
         """,
     )
 
-
+# Transformasi dimensi project.
+# Mengambil data project unik dari transaksi dan mengubah tanggal project menjadi tipe date.
 def load_dim_project(conn):
     _exec(
         conn,
@@ -360,7 +411,9 @@ def load_dim_project(conn):
         """,
     )
 
-
+# Transformasi dimensi account.
+# Mengambil data akun biaya unik dari transaksi dan mengubah account_id menjadi angka.
+# Data account digunakan untuk mengelompokkan biaya berdasarkan jenis akun dan kategori budget.
 def load_dim_account(conn):
     _exec(
         conn,
@@ -381,8 +434,12 @@ def load_dim_account(conn):
         """,
     )
 
-
+# Transformasi dimensi equipment dengan konsep SCD Type 2.
+# SCD Type 2 digunakan agar perubahan atribut equipment tetap memiliki histori.
+# Jika data equipment berubah, record lama ditutup dan record baru dibuat sebagai versi terbaru
 def load_dim_equipment_scd2(conn):
+    # Mengambil data equipment unik dari staging alat berat.
+    # equipment_nk dibuat dari hash nama equipment dan model agar bisa menjadi natural key.
     rows = conn.execute(
         text(
             """
@@ -436,6 +493,9 @@ def load_dim_equipment_scd2(conn):
             continue
 
         cur = current._mapping
+        
+        # Mengecek apakah ada perubahan pada atribut equipment.
+        # Jika ada perubahan, maka SCD Type 2 akan membuat versi historis.
         changed = (
             str(cur["equipment_type"]) != str(item["equipment_type"])
             or str(cur["manufacture"]) != str(item["manufacture"])
@@ -469,7 +529,9 @@ def load_dim_equipment_scd2(conn):
                 params,
             )
 
-
+# Transformasi dan load fact production.
+# Mengubah data produksi menjadi fact table: parsing tanggal, join ke dimensi, casting angka, dan hitung production_cost.
+# production_cost dihitung dari produced_volume * unit_cost.
 def load_fact_production(conn):
     _exec(
         conn,
@@ -508,7 +570,8 @@ def load_fact_production(conn):
         """,
     )
 
-
+# Transformasi dan load fact transaction.
+# Mengubah data transaksi menjadi fact table: parsing tanggal, join ke dimensi, casting biaya, dan hitung cost_variance.
 def load_fact_transaction(conn):
     _exec(
         conn,
@@ -546,7 +609,8 @@ def load_fact_transaction(conn):
         """,
     )
 
-
+# Transformasi dan load fact equipment usage.
+# Mengubah data pemakaian alat berat menjadi fact table: parsing tanggal, buat key lokasi/equipment, join dimensi, dan hitung utilization_rate.
 def load_fact_equipment_usage(conn):
     _exec(
         conn,

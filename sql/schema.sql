@@ -3,29 +3,10 @@
 -- Mode: development full-refresh schema
 -- Note: this rebuilds dimensional and fact tables for a clean ETL run.
 -- =========================================================
-
--- Drop facts first because they depend on dimensions
-DROP TABLE IF EXISTS fact_equipment_usage CASCADE;
-DROP TABLE IF EXISTS fact_production CASCADE;
-DROP TABLE IF EXISTS fact_transaction CASCADE;
-
-DROP TABLE IF EXISTS dim_equipment CASCADE;
-DROP TABLE IF EXISTS dim_account CASCADE;
-DROP TABLE IF EXISTS dim_project CASCADE;
-DROP TABLE IF EXISTS dim_shift CASCADE;
-DROP TABLE IF EXISTS dim_employee CASCADE;
-DROP TABLE IF EXISTS dim_material CASCADE;
-DROP TABLE IF EXISTS dim_site CASCADE;
-DROP TABLE IF EXISTS dim_date CASCADE;
-
-DROP TABLE IF EXISTS stg_transaksi;
-DROP TABLE IF EXISTS stg_production;
-DROP TABLE IF EXISTS stg_alat_berat;
-
 -- =========================================================
 -- 1) Staging tables: raw copies from CSV
 -- =========================================================
-CREATE TABLE stg_transaksi (
+CREATE TABLE IF NOT EXISTS stg_transaksi (
   id bigint,
   time_id bigint,
   site_id bigint,
@@ -56,7 +37,7 @@ CREATE TABLE stg_transaksi (
   cost numeric
 );
 
-CREATE TABLE stg_production (
+CREATE TABLE IF NOT EXISTS stg_production (
   production_id bigint,
   time_id bigint,
   site_id bigint,
@@ -88,7 +69,7 @@ CREATE TABLE stg_production (
   end_time text
 );
 
-CREATE TABLE stg_alat_berat (
+CREATE TABLE IF NOT EXISTS stg_alat_berat (
   equipment_usage_id bigint,
   time_id bigint,
   date text,
@@ -117,7 +98,7 @@ CREATE TABLE stg_alat_berat (
 -- =========================================================
 -- 2) Dimensions
 -- =========================================================
-CREATE TABLE dim_date (
+CREATE TABLE IF NOT EXISTS dim_date (
   date_key int PRIMARY KEY,              -- YYYYMMDD
   full_date date UNIQUE NOT NULL,
   day int,
@@ -130,7 +111,7 @@ CREATE TABLE dim_date (
 );
 
 -- site_nk prevents collision between different source systems that reuse same site_id.
-CREATE TABLE dim_site (
+CREATE TABLE IF NOT EXISTS dim_site (
   site_sk serial PRIMARY KEY,
   site_nk text UNIQUE NOT NULL,
   source_system text NOT NULL,
@@ -141,7 +122,7 @@ CREATE TABLE dim_site (
   longitude numeric
 );
 
-CREATE TABLE dim_material (
+CREATE TABLE IF NOT EXISTS dim_material (
   material_sk serial PRIMARY KEY,
   material_id bigint UNIQUE NOT NULL,
   material_name text,
@@ -149,7 +130,7 @@ CREATE TABLE dim_material (
   unit_of_measure text
 );
 
-CREATE TABLE dim_employee (
+CREATE TABLE IF NOT EXISTS dim_employee (
   employee_sk serial PRIMARY KEY,
   employee_id bigint UNIQUE NOT NULL,
   employee_name text,
@@ -159,7 +140,7 @@ CREATE TABLE dim_employee (
   hire_date date
 );
 
-CREATE TABLE dim_shift (
+CREATE TABLE IF NOT EXISTS dim_shift (
   shift_sk serial PRIMARY KEY,
   shift_id bigint UNIQUE NOT NULL,
   shift_name text,
@@ -167,7 +148,7 @@ CREATE TABLE dim_shift (
   end_time time
 );
 
-CREATE TABLE dim_project (
+CREATE TABLE IF NOT EXISTS dim_project (
   project_sk serial PRIMARY KEY,
   project_id bigint UNIQUE NOT NULL,
   project_name text,
@@ -177,7 +158,7 @@ CREATE TABLE dim_project (
   end_date date
 );
 
-CREATE TABLE dim_account (
+CREATE TABLE IF NOT EXISTS dim_account (
   account_sk serial PRIMARY KEY,
   account_id bigint UNIQUE NOT NULL,
   account_name text,
@@ -185,7 +166,7 @@ CREATE TABLE dim_account (
   budget_category text
 );
 
-CREATE TABLE dim_equipment (
+CREATE TABLE IF NOT EXISTS dim_equipment (
   equipment_sk serial PRIMARY KEY,
   equipment_nk text NOT NULL,
   equipment_name text,
@@ -199,14 +180,14 @@ CREATE TABLE dim_equipment (
   is_current boolean NOT NULL DEFAULT true
 );
 
-CREATE UNIQUE INDEX uq_dim_equipment_current
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dim_equipment_current
 ON dim_equipment(equipment_nk)
 WHERE is_current = true;
 
 -- =========================================================
 -- 3) Fact tables
 -- =========================================================
-CREATE TABLE fact_production (
+CREATE TABLE IF NOT EXISTS fact_production (
   production_sk serial PRIMARY KEY,
   production_id bigint UNIQUE NOT NULL,
   date_key int REFERENCES dim_date(date_key),
@@ -220,7 +201,7 @@ CREATE TABLE fact_production (
   production_cost numeric
 );
 
-CREATE TABLE fact_transaction (
+CREATE TABLE IF NOT EXISTS fact_transaction (
   transaction_sk serial PRIMARY KEY,
   transaction_id bigint UNIQUE NOT NULL,
   date_key int REFERENCES dim_date(date_key),
@@ -234,7 +215,7 @@ CREATE TABLE fact_transaction (
   cost_variance numeric
 );
 
-CREATE TABLE fact_equipment_usage (
+CREATE TABLE IF NOT EXISTS fact_equipment_usage (
   equipment_usage_sk serial PRIMARY KEY,
   equipment_usage_id bigint UNIQUE NOT NULL,
   date_key int REFERENCES dim_date(date_key),

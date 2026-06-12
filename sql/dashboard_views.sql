@@ -1,18 +1,20 @@
+```sql
 -- =========================================================
--- Tableau Semantic Views for PT XYZ Mining Data Warehouse
+-- Dashboard Semantic Views for PT XYZ Mining Data Warehouse
 -- Target DB: PostgreSQL (dw)
 -- Run after: docker compose run --rm etl run
 -- Command example:
--- docker compose exec -T db psql -U dw_user -d dw < sql/tableau_views.sql
+-- docker compose exec -T db psql -U dw_user -d dw < sql/dashboard_views.sql
 -- =========================================================
 
-DROP VIEW IF EXISTS vw_tableau_production;
-DROP VIEW IF EXISTS vw_tableau_equipment_usage;
-DROP VIEW IF EXISTS vw_tableau_financials;
-DROP VIEW IF EXISTS vw_tableau_kpi_monthly;
+DROP VIEW IF EXISTS vw_dashboard_kpi_monthly;
+DROP VIEW IF EXISTS vw_dashboard_production_monthly;
+DROP VIEW IF EXISTS vw_dashboard_equipment_monthly;
+DROP VIEW IF EXISTS vw_dashboard_financial_monthly;
 
 -- 1) Production mart: volume, cost, material, operator, shift, site, time
-CREATE OR REPLACE VIEW vw_tableau_production AS
+
+CREATE OR REPLACE VIEW vw_dashboard_production_monthly AS
 SELECT
     f.production_sk,
     f.production_id,
@@ -54,7 +56,8 @@ LEFT JOIN dim_employee e ON e.employee_sk = f.employee_sk
 LEFT JOIN dim_shift sh ON sh.shift_sk = f.shift_sk;
 
 -- 2) Equipment mart: operating hours, downtime, fuel, maintenance, utilization
-CREATE OR REPLACE VIEW vw_tableau_equipment_usage AS
+
+CREATE OR REPLACE VIEW vw_dashboard_equipment_monthly AS
 SELECT
     f.equipment_usage_sk,
     f.equipment_usage_id,
@@ -102,7 +105,8 @@ LEFT JOIN dim_equipment e ON e.equipment_sk = f.equipment_sk;
 
 -- 3) Financial mart: budget vs actual, variance, project, account, site, time
 -- This view maps the implemented fact_transaction table to the mission's fact_financials concept.
-CREATE OR REPLACE VIEW vw_tableau_financials AS
+
+CREATE OR REPLACE VIEW vw_dashboard_financial_monthly AS
 SELECT
     f.transaction_sk AS financial_sk,
     f.transaction_id AS financial_id,
@@ -147,7 +151,8 @@ LEFT JOIN dim_project p ON p.project_sk = f.project_sk
 LEFT JOIN dim_account a ON a.account_sk = f.account_sk;
 
 -- 4) Monthly KPI helper for executive dashboard cards/trends
-CREATE OR REPLACE VIEW vw_tableau_kpi_monthly AS
+
+CREATE OR REPLACE VIEW vw_dashboard_kpi_monthly AS
 SELECT
     'production' AS subject_area,
     year,
@@ -165,7 +170,7 @@ SELECT
     NULL::numeric AS total_budgeted_cost,
     NULL::numeric AS total_actual_cost,
     NULL::numeric AS total_cost_variance
-FROM vw_tableau_production
+FROM vw_dashboard_production_monthly
 GROUP BY year, month, month_name, quarter, region
 
 UNION ALL
@@ -187,7 +192,7 @@ SELECT
     NULL::numeric AS total_budgeted_cost,
     NULL::numeric AS total_actual_cost,
     NULL::numeric AS total_cost_variance
-FROM vw_tableau_equipment_usage
+FROM vw_dashboard_equipment_monthly
 GROUP BY year, month, month_name, quarter, region
 
 UNION ALL
@@ -209,5 +214,6 @@ SELECT
     SUM(budgeted_cost) AS total_budgeted_cost,
     SUM(actual_cost) AS total_actual_cost,
     SUM(cost_variance) AS total_cost_variance
-FROM vw_tableau_financials
+FROM vw_dashboard_financial_monthly
 GROUP BY year, month, month_name, quarter, region;
+```
